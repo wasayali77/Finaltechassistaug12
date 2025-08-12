@@ -1,0 +1,89 @@
+// lib/consul-register.js
+const CONSUL_HOST = process.env.CONSUL_HOST || 'localhost';
+const CONSUL_PORT = process.env.CONSUL_PORT || '8500';
+const APP_HOST = process.env.APP_HOST || 'localhost';
+const APP_PORT = process.env.APP_PORT || '3000';
+const BASE_PATH = process.env.BASE_PATH ;
+const SERVICE_NAME = 'tech-app';
+const SERVICE_ID = `${SERVICE_NAME}-main`; // Fixed ID to prevent duplicates
+
+async function deregisterFromConsul(serviceId = SERVICE_ID) {
+  try {
+    await fetch(`http://${CONSUL_HOST}:${CONSUL_PORT}/v1/agent/service/deregister/${serviceId}`, {
+      method: 'PUT'
+    });
+    console.log(`✅ Service ${serviceId} deregistered from Consul`);
+  } catch (error) {
+    console.error('❌ Deregistration error:', error.message);
+  }
+}
+
+async function registerWithConsul() {
+  // First deregister if exists
+  await deregisterFromConsul();
+  
+  // Use APP_HOST for both service address and health check
+  const healthCheckHost = APP_HOST;
+  
+  const serviceConfig = {
+    ID: SERVICE_ID, // Fixed ID
+    Name: SERVICE_NAME,
+    Address: APP_HOST, // Container name or IP
+    Port: parseInt(APP_PORT),
+    Tags: ['nextjs', 'frontend'],
+    Check: {
+      HTTP: `http://${healthCheckHost}:${APP_PORT}/api/health`,
+      Interval: '10s',
+      Timeout: '5s'
+    }
+  };
+
+  console.log('Registering with health check URL:', serviceConfig.Check.HTTP);
+  console.log('Service address:', serviceConfig.Address);
+
+  try {
+    const response = await fetch(`http://${CONSUL_HOST}:${CONSUL_PORT}/v1/agent/service/register`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(serviceConfig)
+    });
+
+    if (response.ok) {
+      console.log('✅ Service registered with Consul');
+      return SERVICE_ID;
+    } else {
+      const errorText = await response.text();
+      console.error('❌ Failed to register:', response.statusText, errorText);
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Consul registration error:', error.message);
+    return null;
+  }
+}
+
+// Auto-register when app starts
+let isRegistered = false;
+
+if (typeof window === 'undefined' && !isRegistered) { // Server-side only
+  registerWithConsul().then(id => {
+    if (id) {
+      isRegistered = true;
+    }
+  });
+
+  // Cleanup on exit
+  process.on('SIGINT', async () => {
+    console.log('\n📡 Shutting down, deregistering service...');
+    await deregisterFromConsul();
+    process.exit(0);
+  });
+  
+  process.on('SIGTERM', async () => {
+    console.log('\n📡 Shutting down, deregistering service...');
+    await deregisterFromConsul();
+    process.exit(0);
+  });
+}
+
+module.exports = { registerWithConsul, deregisterFromConsul };
