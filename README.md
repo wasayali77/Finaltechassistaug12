@@ -39,4 +39,4 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 docker build -t sutech .
 
-docker run -d   --name acc-app   --network consulservicediscovery_consul-network   -p 4001:3000   sutech
+docker run -d   --name tech-app   --network consulservicediscovery_consul-network   -p 4002:3000   sutech
